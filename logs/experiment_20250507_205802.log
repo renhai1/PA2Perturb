@@ -1,0 +1,2 @@
+2025-05-07 20:58:02,034 - INFO - === 实验开始 ===
+2025-05-07 20:58:02,034 - INFO - 实验参数: {'debug': True, 'no_cuda': False, 'seed': 10, 'model': 'GCN', 'dataset': 'Citeseer', 'train_lr': 0.01, 'weight_decay': 0.0005, 'hidden': 128, 'num_layer': 3, 'dropout': 0.5, 'n_trials': 5, 'epochs': 200, 'trigger_epochs': 400, 'trigger_size': 3, 'per_class_select': 2, 'cosine_loss': 1.0, 'dist_loss': 1, 'device_id': 0, 'cuda': True}

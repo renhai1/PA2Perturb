@@ -1,0 +1,9 @@
+2025-05-07 20:54:31,208 - INFO - === 实验开始 ===
+2025-05-07 20:54:31,208 - INFO - 实验参数: {'debug': True, 'no_cuda': False, 'seed': 10, 'model': 'GCN', 'dataset': 'PubMed', 'train_lr': 0.01, 'weight_decay': 0.0005, 'hidden': 128, 'num_layer': 3, 'dropout': 0.5, 'n_trials': 5, 'epochs': 200, 'trigger_epochs': 400, 'trigger_size': 3, 'per_class_select': 2, 'cosine_loss': 1.0, 'dist_loss': 1, 'device_id': 0, 'cuda': True}
+2025-05-07 20:57:01,590 - INFO - [Stage2] Attach节点平均准确率: 0.9933
+2025-05-07 20:57:01,590 - INFO - [Stage2] 非Attach节点平均准确率: 0.8250
+2025-05-07 20:57:04,917 - INFO - [Illegal] 平均验证准确率: 0.8408
+2025-05-07 20:57:04,917 - INFO - [Illegal] 平均测试准确率: 0.8455
+2025-05-07 20:57:05,275 - INFO - 标签一致性: 1.0000
+2025-05-07 20:57:05,275 - INFO - MMD值: 0.0031
+2025-05-07 20:57:05,275 - INFO - Permutation MMD: 0.0031, p-value: 0.9180
