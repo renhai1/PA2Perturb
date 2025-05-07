@@ -1,0 +1,9 @@
+2025-05-07 22:59:18,867 - INFO - === 实验开始 ===
+2025-05-07 22:59:18,867 - INFO - 实验参数: {'debug': True, 'no_cuda': False, 'seed': 10, 'model': 'GCN', 'dataset': 'Cora', 'train_lr': 0.01, 'weight_decay': 0.0005, 'hidden': 128, 'num_layer': 3, 'dropout': 0.5, 'n_trials': 5, 'epochs': 200, 'trigger_epochs': 200, 'trigger_size': 3, 'per_class_select': 5, 'cosine_loss': 2, 'dist_loss': 1, 'device_id': 0, 'cuda': True}
+2025-05-07 23:00:06,249 - INFO - [Stage2] Attach节点平均准确率: 0.9226
+2025-05-07 23:00:06,250 - INFO - [Stage2] 非Attach节点平均准确率: 0.8303
+2025-05-07 23:00:06,831 - INFO - [Illegal] 平均验证准确率: 0.8514
+2025-05-07 23:00:06,831 - INFO - [Illegal] 平均测试准确率: 0.8259
+2025-05-07 23:00:07,225 - INFO - 标签一致性: 0.9714
+2025-05-07 23:00:07,225 - INFO - MMD值: 0.0020
+2025-05-07 23:00:07,225 - INFO - Permutation MMD: 0.0020, p-value: 1.0000

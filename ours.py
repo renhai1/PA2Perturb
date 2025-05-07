@@ -1,15 +1,14 @@
 import argparse
-import torch
+import pickle
+
 import numpy as np
 import torch_geometric.transforms as T
-from torch_geometric.datasets import Planetoid, Flickr
+from torch_geometric.datasets import Flickr
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.datasets import Planetoid
-from torch_geometric.transforms import NormalizeFeatures
 from torch_geometric.data import Data
-from torch_geometric.nn import GCNConv
 from torch_geometric.utils import to_undirected
 from sklearn.model_selection import train_test_split
 from collections import defaultdict
@@ -54,7 +53,7 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
 parser.add_argument('--seed', type=int, default=10, help='Random seed.')
 parser.add_argument('--model', type=str, default='GCN', help='model',
                     choices=['GCN', 'GAT', 'GraphSage', 'GIN'])
-parser.add_argument('--dataset', type=str, default='Flickr',
+parser.add_argument('--dataset', type=str, default='PubMed',
                     help='Dataset',
                     choices=['Cora', 'PubMed', 'Citeseer', 'Flickr'])
 parser.add_argument('--train_lr', type=float, default=0.01,
@@ -76,7 +75,7 @@ parser.add_argument('--n_trials', type=int, default=5,
 
 parser.add_argument('--epochs', type=int, default=200, help='Number of epochs to train GNN model.')
 
-parser.add_argument('--trigger_epochs', type=int, default=400, help='Number of epochs to train trigger generator.')
+parser.add_argument('--trigger_epochs', type=int, default=200, help='Number of epochs to train trigger generator.')
 
 # trigger setting
 parser.add_argument('--trigger_size', type=int, default=3,
@@ -85,7 +84,7 @@ parser.add_argument('--trigger_size', type=int, default=3,
 parser.add_argument('--per_class_select', type=int, default=5,
                     help="number of poisoning nodes per_class_select")
 
-parser.add_argument('--cosine_loss', type=float, default=1.0,
+parser.add_argument('--cosine_loss', type=float, default=2,
                     help="cosine_loss")
 
 parser.add_argument('--dist_loss', type=float, default=1,
@@ -105,9 +104,7 @@ print(args)
 log_file = init_logger()
 logging.info("=== 实验开始 ===")
 logging.info(f"实验参数: {vars(args)}")
-import os
-os.environ['https_proxy'] = 'http://127.0.0.1:7890'
-os.environ['http_proxy'] = 'http://127.0.0.1:7890'
+
 # --------------------------
 # 1. 加载并准备数据集
 # --------------------------
@@ -136,7 +133,6 @@ def find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx
         model_optimizer = torch.optim.Adam(model.parameters(), lr=args.train_lr, weight_decay=args.weight_decay)
         classifier_optimizer = torch.optim.Adam(classifier.parameters(), lr=args.train_lr,
                                                 weight_decay=args.weight_decay)
-
         model.train()
         classifier.train()
         for epoch in range(args.epochs):
@@ -173,8 +169,27 @@ def find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx
         else:
             selected = candidates
         selected_nodes_per_class[c] = selected
-
+    save_path = './saved_indices/'
+    # === 第五步：保存节点索引 ===
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    save_file = os.path.join(save_path, f'{args.dataset}_{args.n_trials}_{args.per_class_select}_selected_nodes.pkl')
+    with open(save_file, 'wb') as f:
+        pickle.dump(selected_nodes_per_class, f)
+    print(f"[保存] 筛选结果已保存至: {save_file}")
     return selected_nodes_per_class
+
+
+def load_selected_nodes(save_path='./saved_indices/'):
+    file_path = os.path.join(save_path, f'{args.dataset}_{args.n_trials}_{args.per_class_select}_selected_nodes.pkl')
+    if os.path.exists(file_path):
+        with open(file_path, 'rb') as f:
+            selected_nodes_per_class = pickle.load(f)
+        print(f"[加载] 成功加载已筛选节点索引: {file_path}")
+        return selected_nodes_per_class
+    else:
+        print(f"[警告] 未找到保存的节点索引文件: {file_path}")
+        return None
 
 
 # --------------------------
@@ -207,7 +222,7 @@ def inject_trigger_and_optimize(data, target_nodes):
     new_edges = torch.tensor(new_edges, dtype=torch.long, device=data.x.device).t()
     new_edge_index = to_undirected(torch.cat([orig_edge_index, new_edges], dim=1))
     optimizer = torch.optim.Adam([trigger_features], lr=args.train_lr)
-    for curepoch in range(args.epochs):
+    for curepoch in range(args.trigger_epochs):
         # for curepoch in range(10):
         optimizer.zero_grad()
         cosine_loss = 0
@@ -236,7 +251,11 @@ def inject_trigger_and_optimize(data, target_nodes):
 train_idx = data.train_mask.nonzero(as_tuple=False).view(-1)
 test_idx = data.test_mask.nonzero(as_tuple=False).view(-1)
 num_classes = dataset.num_classes
-selected_nodes = find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx)
+
+selected_nodes = load_selected_nodes()
+if selected_nodes is None:
+    selected_nodes = find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx)
+
 selected_all_nodes = []
 for nodes in selected_nodes.values():
     selected_all_nodes.extend(nodes)
@@ -294,13 +313,13 @@ if (args.model == 'GCN'):
                    drop_ratio=args.dropout).to(device)
 elif (args.model == 'GAT'):
     legalGNN = GAT(input_dim=data.x.size(1), hid_dim=args.hidden, num_layer=args.num_layer,
-                     drop_ratio=args.dropout).to(device)
+                   drop_ratio=args.dropout).to(device)
 elif (args.model == 'GraphSage'):
     legalGNN = GraphSAGE(input_dim=data.x.size(1), hid_dim=args.hidden, num_layer=args.num_layer,
-                           drop_ratio=args.dropout).to(device)
+                         drop_ratio=args.dropout).to(device)
 elif (args.model == 'GIN'):
     legalGNN = GIN(input_dim=data.x.size(1), hid_dim=args.hidden, num_layer=args.num_layer,
-                     drop_ratio=args.dropout).to(device)
+                   drop_ratio=args.dropout).to(device)
 prompt = MyPrompt(args.hidden).to(device)
 
 legalCls = NodeClassifier(hid_dim=args.hidden, num_classes=num_classes, dropout=args.dropout,

@@ -1,0 +1,2 @@
+2025-05-07 23:37:44,899 - INFO - === 实验开始 ===
+2025-05-07 23:37:44,900 - INFO - 实验参数: {'debug': True, 'no_cuda': False, 'seed': 10, 'model': 'GraphSage', 'dataset': 'Flickr', 'train_lr': 0.01, 'weight_decay': 0.0005, 'hidden': 128, 'num_layer': 3, 'dropout': 0.5, 'epochs': 400, 'device_id': 0, 'cuda': True}

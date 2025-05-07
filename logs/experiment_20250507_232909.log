@@ -1,0 +1,3 @@
+2025-05-07 23:29:09,835 - INFO - === 实验开始 ===
+2025-05-07 23:29:09,836 - INFO - 实验参数: {'debug': True, 'no_cuda': False, 'seed': 10, 'model': 'GCN', 'dataset': 'Citeseer', 'train_lr': 0.001, 'weight_decay': 0.0005, 'hidden': 128, 'num_layer': 3, 'dropout': 0.5, 'epochs': 400, 'device_id': 0, 'cuda': True}
+2025-05-07 23:29:13,370 - INFO - [Stage2] 平均测试准确率: 0.6655
