@@ -81,7 +81,7 @@ parser.add_argument('--trigger_epochs', type=int, default=200, help='Number of e
 parser.add_argument('--trigger_size', type=int, default=3,
                     help='tirgger_size')
 
-parser.add_argument('--total_select', type=int, default=80,
+parser.add_argument('--total_select', type=int, default=240,
                     help="number of poisoning nodes total_select")
 
 parser.add_argument('--cosine_loss', type=float, default=2,
