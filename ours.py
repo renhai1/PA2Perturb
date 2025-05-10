@@ -53,7 +53,7 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
 parser.add_argument('--seed', type=int, default=10, help='Random seed.')
 parser.add_argument('--model', type=str, default='GCN', help='model',
                     choices=['GCN', 'GAT', 'GraphSage', 'GIN'])
-parser.add_argument('--dataset', type=str, default='PubMed',
+parser.add_argument('--dataset', type=str, default='Cora',
                     help='Dataset',
                     choices=['Cora', 'PubMed', 'Citeseer', 'Flickr'])
 parser.add_argument('--train_lr', type=float, default=0.01,
@@ -81,8 +81,8 @@ parser.add_argument('--trigger_epochs', type=int, default=200, help='Number of e
 parser.add_argument('--trigger_size', type=int, default=3,
                     help='tirgger_size')
 
-parser.add_argument('--per_class_select', type=int, default=5,
-                    help="number of poisoning nodes per_class_select")
+parser.add_argument('--total_select', type=int, default=80,
+                    help="number of poisoning nodes total_select")
 
 parser.add_argument('--cosine_loss', type=float, default=2,
                     help="cosine_loss")
@@ -125,7 +125,6 @@ def find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx
     misclass_record = defaultdict(lambda: [0] * data.num_nodes)
     acc_list = []
     for trial in range(args.n_trials):
-
         model = GCN(input_dim=data.x.size(1), hid_dim=args.hidden, num_layer=args.num_layer,
                     drop_ratio=args.dropout).to(device)
         classifier = NodeClassifier(hid_dim=args.hidden, num_classes=num_classes, dropout=args.dropout,
@@ -140,7 +139,6 @@ def find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx
             classifier_optimizer.zero_grad()
             node_embding = model(data.x, data.edge_index)
             out, _ = classifier(node_embding)
-
             loss = F.cross_entropy(out[train_idx], data.y[train_idx])
             loss.backward()
             model_optimizer.step()
@@ -153,35 +151,101 @@ def find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx
             preds = logits.argmax(dim=1)
             acc = (preds[test_idx] == data.y[test_idx]).float().mean().item()
             acc_list.append(acc)
-            print(f"[Trial {trial + 1}] Accuracy = {acc:.4f}")  # ✅ 打印每次 trial 的准确率
+            print(f"[Trial {trial + 1}] Accuracy = {acc:.4f}")
             for i in range(data.num_nodes):
                 if preds[i] != data.y[i]:
                     misclass_record[trial][i] = 1
 
-    print(f"[筛选阶段] 平均准确率: {np.mean(acc_list):.4f}\n")  # ✅ 添加平均准确率打印
+    print(f"[筛选阶段] 平均准确率: {np.mean(acc_list):.4f}\n")
+
     total_errors = np.sum([misclass_record[t] for t in range(args.n_trials)], axis=0)
     always_wrong = np.where(total_errors == args.n_trials)[0]
+
+    # === 平均分配总节点数 ===
+    base = args.total_select // num_classes
+    remainder = args.total_select % num_classes
+    per_class_allocation = [base + (1 if i < remainder else 0) for i in range(num_classes)]
+
     selected_nodes_per_class = {}
     for c in range(num_classes):
         candidates = [i for i in always_wrong if data.y[i].item() == c]
-        if len(candidates) > args.per_class_select:
-            selected = np.random.choice(candidates, args.per_class_select, replace=False)
+        if len(candidates) > per_class_allocation[c]:
+            selected = np.random.choice(candidates, per_class_allocation[c], replace=False)
         else:
             selected = candidates
         selected_nodes_per_class[c] = selected
+
+    # === 保存索引 ===
     save_path = './saved_indices/'
-    # === 第五步：保存节点索引 ===
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    save_file = os.path.join(save_path, f'{args.dataset}_{args.n_trials}_{args.per_class_select}_selected_nodes.pkl')
+    save_file = os.path.join(save_path, f'{args.dataset}_{args.n_trials}_{args.total_select}_selected_nodes.pkl')
     with open(save_file, 'wb') as f:
         pickle.dump(selected_nodes_per_class, f)
     print(f"[保存] 筛选结果已保存至: {save_file}")
     return selected_nodes_per_class
 
+# def find_consistently_misclassified_nodes(data, num_classes, train_idx, test_idx):
+#     misclass_record = defaultdict(lambda: [0] * data.num_nodes)
+#     acc_list = []
+#     for trial in range(args.n_trials):
+#
+#         model = GCN(input_dim=data.x.size(1), hid_dim=args.hidden, num_layer=args.num_layer,
+#                     drop_ratio=args.dropout).to(device)
+#         classifier = NodeClassifier(hid_dim=args.hidden, num_classes=num_classes, dropout=args.dropout,
+#                                     inner_dim=args.hidden).to(device)
+#         model_optimizer = torch.optim.Adam(model.parameters(), lr=args.train_lr, weight_decay=args.weight_decay)
+#         classifier_optimizer = torch.optim.Adam(classifier.parameters(), lr=args.train_lr,
+#                                                 weight_decay=args.weight_decay)
+#         model.train()
+#         classifier.train()
+#         for epoch in range(args.epochs):
+#             model_optimizer.zero_grad()
+#             classifier_optimizer.zero_grad()
+#             node_embding = model(data.x, data.edge_index)
+#             out, _ = classifier(node_embding)
+#
+#             loss = F.cross_entropy(out[train_idx], data.y[train_idx])
+#             loss.backward()
+#             model_optimizer.step()
+#             classifier_optimizer.step()
+#
+#         model.eval()
+#         classifier.eval()
+#         with torch.no_grad():
+#             logits, _ = classifier(model(data.x, data.edge_index))
+#             preds = logits.argmax(dim=1)
+#             acc = (preds[test_idx] == data.y[test_idx]).float().mean().item()
+#             acc_list.append(acc)
+#             print(f"[Trial {trial + 1}] Accuracy = {acc:.4f}")  # ✅ 打印每次 trial 的准确率
+#             for i in range(data.num_nodes):
+#                 if preds[i] != data.y[i]:
+#                     misclass_record[trial][i] = 1
+#
+#     print(f"[筛选阶段] 平均准确率: {np.mean(acc_list):.4f}\n")  # ✅ 添加平均准确率打印
+#     total_errors = np.sum([misclass_record[t] for t in range(args.n_trials)], axis=0)
+#     always_wrong = np.where(total_errors == args.n_trials)[0]
+#     selected_nodes_per_class = {}
+#     for c in range(num_classes):
+#         candidates = [i for i in always_wrong if data.y[i].item() == c]
+#         if len(candidates) > args.per_class_select:
+#             selected = np.random.choice(candidates, args.per_class_select, replace=False)
+#         else:
+#             selected = candidates
+#         selected_nodes_per_class[c] = selected
+#     save_path = './saved_indices/'
+#     # === 第五步：保存节点索引 ===
+#     if not os.path.exists(save_path):
+#         os.makedirs(save_path)
+#     save_file = os.path.join(save_path, f'{args.dataset}_{args.n_trials}_{args.per_class_select}_selected_nodes.pkl')
+#     with open(save_file, 'wb') as f:
+#         pickle.dump(selected_nodes_per_class, f)
+#     print(f"[保存] 筛选结果已保存至: {save_file}")
+#     return selected_nodes_per_class
+
 
 def load_selected_nodes(save_path='./saved_indices/'):
-    file_path = os.path.join(save_path, f'{args.dataset}_{args.n_trials}_{args.per_class_select}_selected_nodes.pkl')
+    file_path = os.path.join(save_path, f'{args.dataset}_{args.n_trials}_{args.total_select}_selected_nodes.pkl')
     if os.path.exists(file_path):
         with open(file_path, 'rb') as f:
             selected_nodes_per_class = pickle.load(f)
