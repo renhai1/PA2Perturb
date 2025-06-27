@@ -50,10 +50,10 @@ for i in range(len(variants)):
 
 axes[0].set_xticks(x + 1.5 * bar_width)
 axes[0].set_xticklabels(datasets, fontsize=10)
-axes[0].set_ylabel('PSR (%)', fontsize=11)
+axes[0].set_ylabel('VSR (%)', fontsize=11)
 axes[0].set_ylim(70, 100)
 axes[0].grid(**grid_kwargs)
-axes[0].set_xlabel("None", fontsize=11, fontweight='bold')
+axes[0].set_xlabel("No defense", fontsize=11, fontweight='bold')
 axes[0].xaxis.set_label_position('bottom')
 
 # 右图：Defense
