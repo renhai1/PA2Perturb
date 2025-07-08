@@ -11,7 +11,7 @@ psr_datasets = {
     "GTA": [83.2, 83.2, 83.2, 83.2, 83.2],
     "UGBA": [89.6, 91.7, 93.4, 94.1, 95.7],
     "DPGBA": [89.8, 92.4, 93.9, 95.2, 95.7],
-    "Our": [91.5, 93.6, 95.1, 96.3, 97.1]
+    "Ours": [91.5, 93.6, 95.1, 96.3, 97.1]
 }
 
 psr_gnns = {
@@ -19,14 +19,14 @@ psr_gnns = {
     "GTA": [0, 0, 0, 5.3, 12.4],
     "UGBA": [0, 0, 0, 6.7, 14.2],
     "DPGBA": [0, 0, 0, 9.3, 14.9],
-    "Our": [91.5, 93.6, 95.1, 96.3, 97.1]
+    "Ours": [91.5, 93.6, 95.1, 96.3, 97.1]
 }
 
 # === 样式设定 ===
 set2_colors = sns.color_palette("Set2", 5)
 color_cycle = cycle(set2_colors)
 line_colors = {k: next(color_cycle) for k in psr_datasets.keys()}
-common_markers = {"SBA": "o", "GTA": "s", "UGBA": "^", "DPGBA": "v", "Our": "D"}
+common_markers = {"SBA": "o", "GTA": "s", "UGBA": "^", "DPGBA": "v", "Ours": "D"}
 
 # === 字体设置 ===
 plt.rcParams["font.family"] = "Times New Roman"

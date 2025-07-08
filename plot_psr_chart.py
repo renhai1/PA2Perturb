@@ -59,7 +59,7 @@ for ax, dataset in zip(axes.flat, datasets):
     ax.set_xticks(x + bar_width * (len(methods) / 2))
     ax.set_xticklabels(defenses)
     ax.set_ylim(0, 1.1)
-    ax.set_ylabel("PSR (%)")
+    ax.set_ylabel("VSR (%)")
     ax.set_title(f"{dataset} Dataset", fontsize=14)
     ax.set_yticks(np.linspace(0, 1.0, 6))
     ax.set_yticklabels([f"{int(tick*100)}%" for tick in np.linspace(0, 1.0, 6)])
@@ -74,6 +74,6 @@ legend_handles = [
 ]
 fig.legend(handles=legend_handles, loc='upper center', ncol=4, fontsize=12)
 
-plt.suptitle("PSR(%) Comparison Across Datasets, Defense Methods, and Watermarking Techniques", fontsize=16, y=1.03)
+plt.suptitle("VSR(%) Comparison Across Datasets, Defense Methods, and Watermarking Techniques", fontsize=16, y=1.03)
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
