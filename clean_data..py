@@ -9,9 +9,9 @@ from torch_geometric.datasets import Planetoid
 
 from NodeClassifier import NodeClassifier
 
-from prompt_graph.model import GCN, GAT, GIN, GraphSAGE
+from model import GCN, GAT, GIN, GraphSAGE
 
-from MyPrompt import MyPrompt
+from prompt_graph.MyPrompt import MyPrompt
 
 import os
 import logging
