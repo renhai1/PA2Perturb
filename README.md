@@ -38,6 +38,10 @@ representative graph datasets demonstrate that our PA2Perturb
 outperforms existing state-of-the-art baselines with the verification accuracy over 95.0%. Our source code is publicly available at
 https://anonymous.4open.science/r/PA2Perturb-4F14
 
+## Paper Framework
+![Snipaste_2025-07-22_18-07-29.png](./images/Snipaste_2025-07-22_18-07-29.png)
+
+
 ## Key Features
 - Implementation of multiple state-of-the-art GNN models (GCN, GAT, GraphSAGE, etc.)
 - Various adversarial attack method implementations (including structural and feature attacks)
