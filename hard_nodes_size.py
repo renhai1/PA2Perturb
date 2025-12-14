@@ -8,27 +8,31 @@ x_values = [40, 80, 120, 160, 200]
 
 psr_datasets = {
     "SBA": [0, 0, 0, 0, 0],
-    "GTA": [83.2, 83.2, 83.2, 83.2, 83.2],
-    "UGBA": [89.6, 91.7, 93.4, 94.1, 95.7],
-    "DPGBA": [89.8, 92.4, 93.9, 95.2, 95.7],
+    "GTA": [83.2, 84.1, 85.4, 86.7, 88.2],
+    "UGBA": [87.6, 90.2, 91.4, 92.5, 93.4],
+    "DPGBA": [89.8, 91.4, 92.9, 94.2, 95.7],
+    "SPEAR":[90.0, 92.4, 93.9, 95.2, 96.1],
     "Ours": [91.5, 93.6, 95.1, 96.3, 97.1]
 }
 
 psr_gnns = {
     "SBA": [0, 0, 0, 0, 0],
     "GTA": [0, 0, 0, 5.3, 12.4],
-    "UGBA": [0, 0, 0, 6.7, 14.2],
-    "DPGBA": [0, 0, 0, 9.3, 14.9],
+    "UGBA": [0, 0, 0, 7.7, 14.2],
+    "DPGBA": [0, 0, 0, 10.7, 15.9],
+    "SPEAR":[0, 0, 0, 13.6, 17.9],
     "Ours": [91.5, 93.6, 95.1, 96.3, 97.1]
 }
 
 # === 样式设定 ===
-set2_colors = sns.color_palette("Set2", 5)
+set2_colors = sns.color_palette("Set2", 6)  # 增加一个颜色用于SPEAR
 color_cycle = cycle(set2_colors)
 line_colors = {k: next(color_cycle) for k in psr_datasets.keys()}
-common_markers = {"SBA": "o", "GTA": "s", "UGBA": "^", "DPGBA": "v", "Ours": "D"}
+common_markers = {"SBA": "o", "GTA": "s", "UGBA": "^", "DPGBA": "v", "SPEAR": "*", "Ours": "D"}
 
+# === 设置全局字体 ===
 plt.rcParams["font.family"] = "Times New Roman"
+plt.rcParams["font.sans-serif"] = ["Times New Roman"]
 sns.set(style="whitegrid", font_scale=1.2)
 
 # === 创建图结构（原尺寸） ===
@@ -69,9 +73,8 @@ def plot_broken(ax_top, ax_bot, data_dict, colors, markers, top_ylim, bot_ylim, 
 
     if ylabel:
         ax_top.set_ylabel("VSR (%)", fontsize=10)
-        # ax_bot.set_ylabel("ASR (%)", fontsize=10)
     if xlabel:
-        ax_bot.set_xlabel("Size of Hard Nodes", fontsize=10)
+        ax_bot.set_xlabel("Size of hard nodes", fontsize=10)
 
     ax_top.grid(True, linestyle="--", alpha=0.6)
     ax_bot.grid(True, linestyle="--", alpha=0.6)
@@ -106,16 +109,19 @@ legend_handles = [ax1_top.lines[i] for i in range(len(line_colors))]
 ax_legend.legend(
     handles=legend_handles,
     labels=list(line_colors.keys()),
-    loc='center',
-    ncol=5,
-    fontsize=9,
+    loc='lower center',  # 修改图例位置
+    ncol=6,  # 根据数据集数量调整列数
+    fontsize=10,  # 增大字体尺寸
     frameon=False,
     handlelength=2,
     handletextpad=0.8,
-    columnspacing=1.2
+    columnspacing=1.2,
+    bbox_to_anchor=(0.5, 0.2),  # 调整图例相对于图表的位置
+    prop={'family': 'Times New Roman', 'size': 10}  # 设置图例字体
 )
 
 # === 保存与展示（仅剪边留白）===
 plt.tight_layout(pad=0.3)
+plt.subplots_adjust(top=0.9, bottom=0.15, left=0.1, right=0.95, hspace=0.3, wspace=0.2)  # 整体布局调整
 plt.savefig("size-hard-nodes.png", dpi=600, bbox_inches="tight", pad_inches=0.05)
 plt.show()

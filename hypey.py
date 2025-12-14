@@ -44,7 +44,7 @@ axes[0].set_ylabel(r"$\beta$", fontsize=11, fontname="Times New Roman")
 
 # 右图：Defense（带色条 + β 刻度）
 sns.heatmap(psr_defense, annot=True, fmt=".1f", cmap=cmap, vmin=vmin, vmax=vmax,
-            cbar_kws={"label": "PSR (%)"},
+            cbar_kws={"label": "VSR (%)"},
             xticklabels=gamma_vals, yticklabels=beta_vals, ax=axes[1])
 axes[1].set_xlabel(r"$\gamma$", fontsize=11, fontname="Times New Roman")
 axes[1].set_ylabel("")  # 不重复显示 Y 轴标签

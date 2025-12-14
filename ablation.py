@@ -7,7 +7,7 @@ plt.rcParams["font.sans-serif"] = ["Times New Roman"]
 
 # 数据
 datasets = ['Cora', 'Citeseer', 'Pubmed', 'Flickr']
-variants = ['PDGP-R', 'PDGP-E', 'PDGP-P', 'PDGP']
+variants = ['PA$^2$Perturb-R', 'PA$^2$Perturb-E', 'PA$^2$Perturb-P', 'PA$^2$Perturb']
 
 # None 与 Defense 两组的 PSR 数据
 none_data = np.array([
@@ -53,7 +53,7 @@ axes[0].set_xticklabels(datasets, fontsize=10)
 axes[0].set_ylabel('VSR (%)', fontsize=11)
 axes[0].set_ylim(70, 100)
 axes[0].grid(**grid_kwargs)
-axes[0].set_xlabel("No defense", fontsize=11, fontweight='bold')
+# axes[0].set_xlabel("No attack", fontsize=11, fontweight='bold')
 axes[0].xaxis.set_label_position('bottom')
 
 # 右图：Defense
@@ -63,11 +63,11 @@ for i in range(len(variants)):
 
 axes[1].set_xticks(x + 1.5 * bar_width)
 axes[1].set_xticklabels(datasets, fontsize=10)
-axes[1].set_ylabel('PSR (%)', fontsize=11)
+axes[1].set_ylabel('VSR (%)', fontsize=11)
 axes[1].set_ylim(5, 100)
 axes[1].grid(**grid_kwargs)
 axes[1].tick_params(labelleft=True)
-axes[1].set_xlabel("Defense", fontsize=11, fontweight='bold')
+# axes[1].set_xlabel("Defense", fontsize=11, fontweight='bold')
 axes[1].xaxis.set_label_position('bottom')
 
 # 美化边框
