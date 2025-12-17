@@ -2,51 +2,61 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # -----------------------------
-# Data
+# X-axis: Pruning ratio
 # -----------------------------
-attacks = ['Prune', 'OD', 'RIGBD', 'MAD']
-baseline_bar = np.array([68, 61, 55, 63])
-ours_bar = np.array([90, 88, 85, 89])
+prune_ratio = np.array([0, 20, 40, 60, 80])
 
-prune_ratio = np.array([0.0, 0.1, 0.2, 0.3, 0.4])
-baseline_line = np.array([92, 78, 62, 45, 30])
-ours_line = np.array([96, 93, 90, 87, 82])
+# -----------------------------
+# Simulated data (S@1%)
+# -----------------------------
+# -------- Cora --------
+gta_cora   = [55, 45, 32, 22, 15]
+ugba_cora  = [70, 60, 45, 35, 25]
+dpgba_cora = [80, 68, 50, 38, 28]
+spear_cora = [88, 78, 62, 50, 40]
+ours_cora  = [96, 94, 90, 87, 84]
+
+# -------- Reddit --------
+gta_reddit   = [58, 48, 35, 25, 18]
+ugba_reddit  = [72, 63, 48, 36, 27]
+dpgba_reddit = [82, 72, 55, 42, 32]
+spear_reddit = [90, 82, 67, 55, 45]
+ours_reddit  = [97, 95, 92, 89, 86]
 
 # -----------------------------
 # Plot
 # -----------------------------
-fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+plt.figure(figsize=(10, 4))
 
-# ===== Left: Bar chart =====
-x = np.arange(len(attacks))
-width = 0.35
+# ---- Subplot 1: Cora ----
+plt.subplot(1, 2, 1)
+plt.plot(prune_ratio, gta_cora,   marker='s', label='GTA')
+plt.plot(prune_ratio, ugba_cora,  marker='o', label='UGBA')
+plt.plot(prune_ratio, dpgba_cora, marker='^', label='DPGBA')
+plt.plot(prune_ratio, spear_cora, marker='D', label='SPEAR')
+plt.plot(prune_ratio, ours_cora,  marker='v', linewidth=2.5, label='Ours')
 
-axes[0].bar(x - width/2, baseline_bar, width,
-            label='Baseline', edgecolor='black')
-axes[0].bar(x + width/2, ours_bar, width,
-            label='Ours', edgecolor='black')
+plt.xlabel('Pruning Ratio (%)')
+plt.ylabel('S@1 (%)')
+plt.title('Cora')
+plt.ylim(10, 100)
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.legend()
 
-axes[0].set_ylabel('S@1%')
-axes[0].set_xlabel('Attack Method')
-axes[0].set_xticks(x)
-axes[0].set_xticklabels(attacks)
-axes[0].set_ylim(0, 100)
-axes[0].legend(frameon=False)
-axes[0].grid(axis='y', linestyle='--', alpha=0.6)
-axes[0].set_title('(a) Robustness under different attacks')
+# ---- Subplot 2: Reddit ----
+plt.subplot(1, 2, 2)
+plt.plot(prune_ratio, gta_reddit,   marker='s', label='GTA')
+plt.plot(prune_ratio, ugba_reddit,  marker='o', label='UGBA')
+plt.plot(prune_ratio, dpgba_reddit, marker='^', label='DPGBA')
+plt.plot(prune_ratio, spear_reddit, marker='D', label='SPEAR')
+plt.plot(prune_ratio, ours_reddit,  marker='v', linewidth=2.5, label='Ours')
 
-# ===== Right: Line chart =====
-axes[1].plot(prune_ratio, baseline_line,
-             marker='o', linewidth=2, label='Baseline')
-axes[1].plot(prune_ratio, ours_line,
-             marker='s', linewidth=2, label='Ours')
-
-axes[1].set_xlabel('Prune Ratio')
-axes[1].set_ylabel('S@1%')
-axes[1].set_ylim(0, 100)
-axes[1].legend(frameon=False)
-axes[1].grid(True, linestyle='--', alpha=0.6)
-axes[1].set_title('(b) Performance degradation vs. attack strength')
+plt.xlabel('Pruning Ratio (%)')
+plt.ylabel('S@1 (%)')
+plt.title('Reddit')
+plt.ylim(10, 100)
+plt.grid(True, linestyle='--', alpha=0.5)
+plt.legend()
 
 plt.tight_layout()
 plt.show()
