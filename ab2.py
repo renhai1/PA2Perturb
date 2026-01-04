@@ -21,7 +21,7 @@ np.random.seed(42)
 # ===============================
 # Flicker
 clean_flicker = np.random.lognormal(
-    mean=np.log(9.0e-6),
+    mean=np.log(9.0e-6),   # 峰值在 ~0.8e-5~1.0e-5
     sigma=0.5,
     size=600
 )
@@ -31,18 +31,20 @@ triggers_flicker = np.random.lognormal(
     sigma=0.25,
     size=60
 )
-
 triggers_flicker = triggers_flicker[
     triggers_flicker < np.percentile(clean_flicker, 75)
 ]
 
-# OGB-arxiv
+
+# -------- OGB-arxiv --------
+# Clean：右偏但更集中
 clean_ogb = np.random.lognormal(
     mean=np.log(0.022),
     sigma=0.4,
     size=800
 )
 
+# Triggers：少量、集中
 triggers_ogb = np.random.lognormal(
     mean=np.log(0.028),
     sigma=0.22,
@@ -118,7 +120,7 @@ sns.histplot(triggers_flicker, bins=14, stat="count",
              kde=True, line_kws={"linewidth": 1.4},
              ax=ax_c, label="Illusory prompts")
 
-ax_c.set_title('(c) Flicker', fontweight='bold')
+ax_c.set_title('(c) Cora', fontweight='bold')
 ax_c.set_xlabel('Reconstruction Loss')
 ax_c.set_ylabel('Frequency')
 ax_c.grid(axis='y', linestyle='--', alpha=0.25)
@@ -138,7 +140,7 @@ sns.histplot(triggers_ogb, bins=16, stat="count",
              kde=True, line_kws={"linewidth": 1.4},
              ax=ax_d, label="Illusory prompts")
 
-ax_d.set_title('(d) OGB-arxiv', fontweight='bold')
+ax_d.set_title('(d) Reddit', fontweight='bold')
 ax_d.set_xlabel('Reconstruction Loss')
 ax_d.set_ylabel('Frequency')
 ax_d.grid(axis='y', linestyle='--', alpha=0.25)

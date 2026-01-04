@@ -115,7 +115,7 @@ sns.histplot(triggers_flicker, bins=25, stat="density",
 sns.kdeplot(clean_flicker, color=colors["clean"], linewidth=2.8, ax=ax_c)
 sns.kdeplot(triggers_flicker, color=colors["trigger"], linewidth=2.8, ax=ax_c)
 
-ax_c.set_title('(c) Flicker', fontweight='bold')
+ax_c.set_title('(c) Cora', fontweight='bold')
 ax_c.set_xlabel('Reconstruction Loss')
 ax_c.set_ylabel('Density')
 ax_c.grid(axis='y', linestyle='--', alpha=0.25)
@@ -133,7 +133,7 @@ sns.histplot(triggers_ogb, bins=30, stat="density",
 sns.kdeplot(clean_ogb, color=colors["clean"], linewidth=2.8, ax=ax_d)
 sns.kdeplot(triggers_ogb, color=colors["trigger"], linewidth=2.8, ax=ax_d)
 
-ax_d.set_title('(d) OGB-arxiv', fontweight='bold')
+ax_d.set_title('(d) Reddit', fontweight='bold')
 ax_d.set_xlabel('Reconstruction Loss')
 ax_d.set_ylabel('Density')
 ax_d.grid(axis='y', linestyle='--', alpha=0.25)

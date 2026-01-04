@@ -1,14 +1,22 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-# -----------------------------
+# ===============================
+# Global Style (Paper-ready)
+# ===============================
+sns.set_style("whitegrid")
+sns.set_context("paper", font_scale=1.1)
+plt.rcParams["font.family"] = "serif"
+
+# ===============================
 # X-axis: Pruning ratio
-# -----------------------------
+# ===============================
 prune_ratio = np.array([0, 20, 40, 60, 80])
 
-# -----------------------------
+# ===============================
 # Simulated data (S@1%)
-# -----------------------------
+# ===============================
 # -------- Cora --------
 gta_cora   = [55, 45, 32, 22, 15]
 ugba_cora  = [70, 60, 45, 35, 25]
@@ -23,40 +31,57 @@ dpgba_reddit = [82, 72, 55, 42, 32]
 spear_reddit = [90, 82, 67, 55, 45]
 ours_reddit  = [97, 95, 92, 89, 86]
 
-# -----------------------------
-# Plot
-# -----------------------------
-plt.figure(figsize=(10, 4))
+# ===============================
+# Figure Layout (Two-column width)
+# ===============================
+fig, axes = plt.subplots(
+    1, 2,
+    figsize=(7.2, 3.2),   # paper-friendly
+    dpi=300
+)
 
-# ---- Subplot 1: Cora ----
-plt.subplot(1, 2, 1)
-plt.plot(prune_ratio, gta_cora,   marker='s', label='GTA')
-plt.plot(prune_ratio, ugba_cora,  marker='o', label='UGBA')
-plt.plot(prune_ratio, dpgba_cora, marker='^', label='DPGBA')
-plt.plot(prune_ratio, spear_cora, marker='D', label='SPEAR')
-plt.plot(prune_ratio, ours_cora,  marker='v', linewidth=2.5, label='Ours')
+# ===============================
+# (a) Cora
+# ===============================
+ax = axes[0]
+ax.plot(prune_ratio, gta_cora,   marker='s', markersize=5, linewidth=2.0, label='GTA')
+ax.plot(prune_ratio, ugba_cora,  marker='o', markersize=5, linewidth=2.0, label='UGBA')
+ax.plot(prune_ratio, dpgba_cora, marker='^', markersize=5, linewidth=2.0, label='DPGBA')
+ax.plot(prune_ratio, spear_cora, marker='D', markersize=5, linewidth=2.0, label='SPEAR')
+ax.plot(prune_ratio, ours_cora,  marker='v', markersize=5, linewidth=2.8, label='Ours')
 
-plt.xlabel('Pruning Ratio (%)')
-plt.ylabel('S@1 (%)')
-plt.title('Cora')
-plt.ylim(10, 100)
-plt.grid(True, linestyle='--', alpha=0.5)
-plt.legend()
+ax.set_title('(a) Cora', fontweight='bold')
+ax.set_xlabel('Pruning Ratio (%)')
+ax.set_ylabel('S@1 (%)')
+ax.set_ylim(10, 100)
+ax.set_yticks([20, 40, 60, 80, 100])
+ax.grid(axis='y', linestyle='--', alpha=0.35)
+ax.legend(frameon=False, fontsize=9)
 
-# ---- Subplot 2: Reddit ----
-plt.subplot(1, 2, 2)
-plt.plot(prune_ratio, gta_reddit,   marker='s', label='GTA')
-plt.plot(prune_ratio, ugba_reddit,  marker='o', label='UGBA')
-plt.plot(prune_ratio, dpgba_reddit, marker='^', label='DPGBA')
-plt.plot(prune_ratio, spear_reddit, marker='D', label='SPEAR')
-plt.plot(prune_ratio, ours_reddit,  marker='v', linewidth=2.5, label='Ours')
+# ===============================
+# (b) Reddit
+# ===============================
+ax = axes[1]
+ax.plot(prune_ratio, gta_reddit,   marker='s', markersize=5, linewidth=2.0, label='GTA')
+ax.plot(prune_ratio, ugba_reddit,  marker='o', markersize=5, linewidth=2.0, label='UGBA')
+ax.plot(prune_ratio, dpgba_reddit, marker='^', markersize=5, linewidth=2.0, label='DPGBA')
+ax.plot(prune_ratio, spear_reddit, marker='D', markersize=5, linewidth=2.0, label='SPEAR')
+ax.plot(prune_ratio, ours_reddit,  marker='v', markersize=5, linewidth=2.8, label='Ours')
 
-plt.xlabel('Pruning Ratio (%)')
-plt.ylabel('S@1 (%)')
-plt.title('Reddit')
-plt.ylim(10, 100)
-plt.grid(True, linestyle='--', alpha=0.5)
-plt.legend()
+ax.set_title('(b) Reddit', fontweight='bold')
+ax.set_xlabel('Pruning Ratio (%)')
+ax.set_ylabel('S@1 (%)')
+ax.set_ylim(10, 100)
+ax.set_yticks([20, 40, 60, 80, 100])
+ax.grid(axis='y', linestyle='--', alpha=0.35)
+ax.legend(frameon=False, fontsize=9)
 
+# ===============================
+# Save as PDF (IMPORTANT)
+# ===============================
 plt.tight_layout()
-plt.show()
+plt.savefig(
+    "pruning_robustness_s1.pdf",
+    bbox_inches="tight"
+)
+plt.close()
