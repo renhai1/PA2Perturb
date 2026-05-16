@@ -1,83 +1,97 @@
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
 
-# === 设置全局字体 ===
-plt.rcParams["font.family"] = "Times New Roman"
-plt.rcParams["font.sans-serif"] = ["Times New Roman"]
+plt.rcParams.update({
+    'font.family': 'serif',
+    'font.serif': ['DejaVu Serif', 'Bitstream Vera Serif'],
+    'axes.linewidth': 1.3,
+    'font.size': 13,
+    'axes.facecolor': '#fafafa',
+    'figure.facecolor': 'white',
+    'axes.edgecolor': '#333333',
+    'xtick.color': '#333333',
+    'ytick.color': '#333333',
+    'axes.labelcolor': '#222222',
+    'hatch.linewidth': 0.8,
+})
 
-# 数据
-datasets = ['Cora', 'Citeseer', 'Pubmed', 'Flickr']
-variants = ['PA$^2$Perturb-R', 'PA$^2$Perturb-E', 'PA$^2$Perturb-P', 'PA$^2$Perturb']
+# ========== Data ==========
+datasets = ['Cora', 'Citeseer', 'Pubmed', 'Flickr', 'Cora-P', 'Cora-F']
+variants = [r'PA$^2$Perturb-R', r'PA$^2$Perturb-E',
+            r'PA$^2$Perturb-P', r'PA$^2$Perturb']
 
-# None 与 Defense 两组的 PSR 数据
-none_data = np.array([
-    # [74.5, 98.4, 88.4, 97.2],
-    # [72.1, 96.4, 90.2, 95.3],
-    # [71.8, 94.5, 86.4, 93.9],
-    # [70.9, 98.9, 89.7, 97.1],
+# (a) No attack
+no_attack = {
+    r'PA$^2$Perturb-R': [75, 72, 72, 71, 62, 55],
+    r'PA$^2$Perturb-E': [75, 72, 72, 71, 60, 52],
+    r'PA$^2$Perturb-P': [89, 90, 87, 92, 75, 68],
+    r'PA$^2$Perturb':   [97, 95, 94, 97, 87, 80],
+}
 
-    [74.5, 72.1, 71.8, 70.9],
-    [98.4, 96.4, 94.5, 98.9],
-    [88.4, 90.2, 86.4, 89.7],
-    [97.2, 95.3, 93.9, 97.1]
-])
+# (b) RIGBD
+rigbd = {
+    r'PA$^2$Perturb-R': [23, 22, 25, 25, 18, 15],
+    r'PA$^2$Perturb-E': [17, 16, 15, 10, 12,  9],
+    r'PA$^2$Perturb-P': [88, 90, 85, 88, 65, 58],
+    r'PA$^2$Perturb':   [91, 95, 91, 89, 73, 70],
+}
 
-defense_data = np.array([
-    [22.4, 21.7, 23.8, 24.6],
-    [15.4, 17.2, 14.2, 7.3],
-    [87.6, 89.4, 85.7, 88.6],
-    [91.2, 95.8, 91.1, 89.5],
-])
+# ========== Style ==========
+variant_styles = {
+    r'PA$^2$Perturb-R': {'color': '#e8b4b8', 'hatch': '///'},
+    r'PA$^2$Perturb-E': {'color': '#f0c87c', 'hatch': 'xxx'},
+    r'PA$^2$Perturb-P': {'color': '#8fbc8f', 'hatch': '\\\\'},
+    r'PA$^2$Perturb':   {'color': '#7fb3d8', 'hatch': '+++'},
+}
 
-# 绘图参数
+# ========== Plot ==========
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.5))
+
 bar_width = 0.18
 x = np.arange(len(datasets))
-colors = ['#d4a5a5', '#f1c16e', '#8ab6a7', '#5b9bd5']
-hatches = ['//', 'xx', '\\\\', '++']
-gray_color = 'dimgray'
 
-# 创建子图
-fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), sharey=True)
+for ax, data_dict, subtitle in [(ax1, no_attack, '(a) No attack'),
+                                  (ax2, rigbd, '(b) RIGBD')]:
+    for i, variant in enumerate(variants):
+        style = variant_styles[variant]
+        values = data_dict[variant]
+        offset = (i - 1.5) * bar_width
+        ax.bar(x + offset, values, bar_width,
+               color=style['color'], hatch=style['hatch'],
+               edgecolor='black', linewidth=0.6,
+               zorder=3)
 
-# 网格线设置
-grid_kwargs = dict(which='major', linestyle='--', linewidth=1, color='lightgray', axis='y')
+    ax.set_ylim(0, 105)
+    ax.set_yticks([0, 20, 40, 60, 80, 100])
+    ax.set_xticks(x)
+    ax.set_xticklabels(datasets, fontsize=11.5)
+    ax.set_ylabel('Accuracy (%)', fontsize=13, labelpad=6)
+    ax.set_xlabel(subtitle, fontsize=14, fontweight='bold', labelpad=10)
+    ax.grid(axis='y', linestyle='--', alpha=0.4, color='#aaaaaa', linewidth=0.7, zorder=0)
+    ax.tick_params(axis='both', direction='in', length=4, width=1.0, labelsize=11)
 
-# 左图：None
-for i in range(len(variants)):
-    axes[0].bar(x + i * bar_width, none_data[i], width=bar_width,
-                label=variants[i], color=colors[i],
-                hatch=hatches[i], edgecolor='black')
-
-axes[0].set_xticks(x + 1.5 * bar_width)
-axes[0].set_xticklabels(datasets, fontsize=10)
-axes[0].set_ylabel('VSR (%)', fontsize=11)
-axes[0].set_ylim(70, 100)
-axes[0].grid(**grid_kwargs)
-# axes[0].set_xlabel("No attack", fontsize=11, fontweight='bold')
-axes[0].xaxis.set_label_position('bottom')
-
-# 右图：Defense
-for i in range(len(variants)):
-    axes[1].bar(x + i * bar_width, defense_data[i], width=bar_width,
-                color=colors[i], hatch=hatches[i], edgecolor='black')
-
-axes[1].set_xticks(x + 1.5 * bar_width)
-axes[1].set_xticklabels(datasets, fontsize=10)
-axes[1].set_ylabel('VSR (%)', fontsize=11)
-axes[1].set_ylim(5, 100)
-axes[1].grid(**grid_kwargs)
-axes[1].tick_params(labelleft=True)
-# axes[1].set_xlabel("Defense", fontsize=11, fontweight='bold')
-axes[1].xaxis.set_label_position('bottom')
-
-# 美化边框
-for ax in axes:
     for spine in ax.spines.values():
-        spine.set_visible(True)
-        spine.set_linewidth(1)
-        spine.set_edgecolor(gray_color)
+        spine.set_linewidth(1.3)
 
-# 图例
-fig.legend(variants, loc='upper center', ncol=4, fontsize=10)
-plt.tight_layout(rect=[0, 0, 1, 0.93])
-plt.show()
+# ========== Shared legend on top ==========
+legend_handles = []
+for variant in variants:
+    style = variant_styles[variant]
+    legend_handles.append(
+        mpatches.Patch(facecolor=style['color'], hatch=style['hatch'],
+                       edgecolor='black', linewidth=0.6, label=variant)
+    )
+
+fig.legend(handles=legend_handles, loc='upper center',
+           ncol=4, fontsize=12, frameon=True,
+           bbox_to_anchor=(0.5, 1.01),
+           handlelength=2.5, handleheight=1.5,
+           columnspacing=2.0, borderpad=0.6,
+           edgecolor='#888888', fancybox=True, framealpha=0.95)
+
+plt.tight_layout(rect=[0, 0, 1, 0.92], w_pad=3.0)
+plt.savefig('/Users/keyuan/PycharmProjects/PA2Perturb/datashow/ablation_bar.pdf',
+            format='pdf', dpi=300, bbox_inches='tight')
+plt.close()
+print("Done! Saved to ablation_bar.pdf")
