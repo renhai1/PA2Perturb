@@ -12,7 +12,6 @@ import os
 import pickle
 import logging
 from datetime import datetime
-from collections import defaultdict
 
 import numpy as np
 import torch
@@ -156,6 +155,30 @@ def build_gnn(input_dim, hid_dim, num_layer, dropout):
 
 
 # ============================================================
+# CIS Generator: 2-layer MLP  (Appendix A, "f_c is a 2-layer MLP")
+# ============================================================
+class CISGenerator(nn.Module):
+    """Generate CIS node features from stable-region context."""
+
+    def __init__(self, input_dim, hidden_dim=256):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim),
+        )
+
+    def forward(self, region_feats):
+        """
+        Args:
+            region_feats: [N_h, d] mean feature of each stable region
+        Returns:
+            cis_feats: [N_h * trigger_size, d]
+        """
+        return self.mlp(region_feats)
+
+
+# ============================================================
 # 1. Train Surrogate Model  (Section 5.2, Eq. 3)
 # ============================================================
 logging.info("=== Stage 1: Train Surrogate Model ===")
@@ -207,7 +230,7 @@ def select_hard_nodes_by_entropy():
         probs = F.softmax(logits_all, dim=1)
         log_probs = torch.log(probs + 1e-10)
         entropy = -(probs * log_probs).sum(dim=1)  # H(v)
-        pseudo_labels = probs.argmax(dim=1)
+        pseudo_labels_local = probs.argmax(dim=1)
 
     per_class = args.total_select // num_classes
     remainder = args.total_select % num_classes
@@ -216,7 +239,7 @@ def select_hard_nodes_by_entropy():
 
     hard_nodes_per_class = {}
     for c in range(num_classes):
-        mask_c = (pseudo_labels == c) & unlabeled_mask
+        mask_c = (pseudo_labels_local == c) & unlabeled_mask
         candidates = mask_c.nonzero(as_tuple=False).view(-1)
         if len(candidates) == 0:
             hard_nodes_per_class[c] = torch.tensor([], dtype=torch.long,
@@ -248,7 +271,6 @@ hard_mask = torch.zeros(data.num_nodes, dtype=torch.bool, device=device)
 hard_mask[hard_nodes] = True
 soft_mask = ~hard_mask
 
-# pseudo labels for hard nodes
 with torch.no_grad():
     pseudo_labels = logits_all.argmax(dim=1)
 
@@ -261,7 +283,7 @@ logging.info(f"Selected {len(hard_nodes)} hard nodes across {num_classes} classe
 logging.info("=== Stage 3: Stable Region Selection ===")
 
 with torch.no_grad():
-    embeddings = surrogate_gnn(data.x, data.edge_index)  # frozen embeddings
+    embeddings = surrogate_gnn(data.x, data.edge_index)
 
 deg = degree(data.edge_index[0], num_nodes=data.num_nodes)
 
@@ -293,7 +315,7 @@ for vh in hard_nodes.tolist():
     stable_regions[vh] = v_sem
 
 total_region_nodes = sum(len(v) for v in stable_regions.values())
-logging.info(f"Stable regions built: {len(stable_regions)} regions, "
+logging.info(f"Stable regions: {len(stable_regions)} regions, "
              f"{total_region_nodes} total nodes")
 
 
@@ -308,21 +330,27 @@ for p in surrogate_gnn.parameters():
 for p in surrogate_cls.parameters():
     p.requires_grad = False
 
-# --- CIS features (learnable) ---
-total_cis_nodes = len(hard_nodes) * args.trigger_size
-cis_features = torch.randn(total_cis_nodes, feature_dim,
-                            device=device, requires_grad=True)
-
-# build CIS edges: CIS nodes connect to each other + to stable region nodes
 num_orig = data.num_nodes
-cis_edges_list = []
-cis_to_region = {}  # maps cis_node_idx -> region centroid indices
+total_cis_nodes = len(hard_nodes) * args.trigger_size
+hard_nodes_list = hard_nodes.tolist()
 
-for i, vh in enumerate(hard_nodes.tolist()):
+# --- CIS Generator (2-layer MLP, Appendix Section 14) ---
+cis_gen = CISGenerator(input_dim=feature_dim, hidden_dim=args.hidden).to(device)
+
+# precompute stable-region mean features as input to generator
+region_mean_feats = []
+for vh in hard_nodes_list:
+    v_sem = stable_regions[vh]
+    region_mean_feats.append(data.x[v_sem].mean(dim=0))
+region_mean_feats = torch.stack(region_mean_feats)  # [N_h, d]
+
+# --- Build CIS topology (fixed throughout optimization) ---
+cis_edges_list = []
+for i, vh in enumerate(hard_nodes_list):
     base = i * args.trigger_size + num_orig
     v_sem = stable_regions[vh]
 
-    # internal CIS edges
+    # internal CIS clique
     for a in range(args.trigger_size):
         for b in range(a + 1, args.trigger_size):
             cis_edges_list.append([base + a, base + b])
@@ -334,134 +362,128 @@ for i, vh in enumerate(hard_nodes.tolist()):
             cis_edges_list.append([base + a, u])
             cis_edges_list.append([u, base + a])
 
-    for a in range(args.trigger_size):
-        cis_to_region[base + a] = v_sem
-
-if len(cis_edges_list) > 0:
+if cis_edges_list:
     cis_edges = torch.tensor(cis_edges_list, dtype=torch.long, device=device).t()
 else:
     cis_edges = torch.zeros((2, 0), dtype=torch.long, device=device)
 
+# precompute perturbed edge_index (topology never changes)
+perturbed_edge_index = to_undirected(
+    torch.cat([data.edge_index, cis_edges], dim=1))
+
 # --- Dual Prompt ---
 prompt = DualPrompt(feature_dim).to(device)
+prompt.init_from_data(data.x, soft_mask, hard_mask)
 
-# build masks for the full perturbed graph
+# masks for the full perturbed graph  (N_orig + N_cis nodes)
 total_nodes = num_orig + total_cis_nodes
 hard_mask_full = torch.zeros(total_nodes, dtype=torch.bool, device=device)
 hard_mask_full[hard_nodes] = True
-# CIS nodes are treated as part of stable regions (neither hard nor soft label-wise)
-
-soft_mask_full = torch.zeros(total_nodes, dtype=torch.bool, device=device)
-soft_mask_full[:num_orig] = True
-soft_mask_full[hard_nodes] = False
-
-# initialize prompt from data
-prompt.init_from_data(data.x, soft_mask, hard_mask)
 
 # optimizers
-cis_optimizer = torch.optim.Adam([cis_features], lr=args.train_lr)
+cis_optimizer = torch.optim.Adam(cis_gen.parameters(), lr=args.train_lr)
 prompt_optimizer = torch.optim.Adam(prompt.parameters(), lr=args.train_lr)
 
+# --- precompute original-graph embedding statistics (constant target) ---
+with torch.no_grad():
+    mu_ori = embeddings.mean(dim=0)
+    diff_ori = embeddings - mu_ori
+    cov_ori = (diff_ori.t() @ diff_ori) / max(embeddings.size(0) - 1, 1)
+    # eigendecompose cov_ori once (PSD, use eigh)
+    eigvals_ori, Q_ori = torch.linalg.eigh(
+        cov_ori + 1e-6 * torch.eye(cov_ori.size(0), device=device))
+    sqrt_cov_ori = Q_ori @ torch.diag(eigvals_ori.clamp(min=0).sqrt()) @ Q_ori.t()
 
-def build_perturbed_graph():
-    """Construct perturbed graph with current CIS features."""
-    new_x = torch.cat([data.x, cis_features], dim=0)
-    new_edge_index = to_undirected(
-        torch.cat([data.edge_index, cis_edges], dim=1))
-    return new_x, new_edge_index
+
+def generate_cis_features():
+    """Run CIS generator to produce features for all CIS nodes."""
+    # generator input: region mean feature replicated per trigger_size
+    per_node_feats = cis_gen(region_mean_feats)          # [N_h, d]
+    cis_feats = per_node_feats.repeat_interleave(args.trigger_size, dim=0)  # [N_h*ts, d]
+    return cis_feats
 
 
-def compute_w2_loss(h_cis, h_ori):
-    """Squared 2-Wasserstein distance between two sets of embeddings (Eq. 12)."""
+def compute_w2_loss(h_cis):
+    """Squared 2-Wasserstein distance between CIS and original embeddings (Eq. 12).
+
+    Uses the closed-form for Gaussians:
+      W2^2 = ||mu_cis - mu_ori||^2
+           + Tr(Sigma_cis) + Tr(Sigma_ori)
+           - 2 * Tr( (Sigma_ori^{1/2} Sigma_cis Sigma_ori^{1/2})^{1/2} )
+    """
     mu_cis = h_cis.mean(dim=0)
-    mu_ori = h_ori.mean(dim=0)
-
     diff_cis = h_cis - mu_cis
-    diff_ori = h_ori - mu_ori
-
     cov_cis = (diff_cis.t() @ diff_cis) / max(h_cis.size(0) - 1, 1)
-    cov_ori = (diff_ori.t() @ diff_ori) / max(h_ori.size(0) - 1, 1)
 
     mean_diff = (mu_cis - mu_ori).pow(2).sum()
 
-    # Approximate sqrt(Sigma_ori^{1/2} Sigma_cis Sigma_ori^{1/2}) with
-    # (Sigma_cis + Sigma_ori) / 2 - identity * cross term (simplified)
-    # For numerical stability, use trace formulation:
-    # Tr(Sigma_cis + Sigma_ori - 2*(Sigma_ori^{1/2} Sigma_cis Sigma_ori^{1/2})^{1/2})
-    # Approximate via eigenvalue decomposition
-    product = cov_ori @ cov_cis
-    # use SVD for stable sqrt of product
-    try:
-        U, S, Vh = torch.linalg.svd(product)
-        sqrt_product = U @ torch.diag(S.clamp(min=0).sqrt()) @ Vh
-        trace_term = (cov_cis + cov_ori - 2 * sqrt_product).diagonal().sum()
-    except Exception:
-        trace_term = (cov_cis - cov_ori).pow(2).diagonal().sum()
+    # M = Sigma_ori^{1/2} Sigma_cis Sigma_ori^{1/2}  (guaranteed PSD)
+    M = sqrt_cov_ori @ cov_cis @ sqrt_cov_ori
+    # symmetrise for numerical stability
+    M = (M + M.t()) / 2
+    eigvals_M = torch.linalg.eigvalsh(M).clamp(min=0)
+    trace_sqrt_M = eigvals_M.sqrt().sum()
 
-    return mean_diff + trace_term.clamp(min=0)
+    w2 = mean_diff + cov_cis.trace() + cov_ori.trace() - 2 * trace_sqrt_M
+    return w2.clamp(min=0)
 
 
-def compute_semantic_loss(cis_feats, hard_nodes_list, embeddings_ori):
-    """Semantic coherence loss (Eq. 13)."""
+def compute_semantic_loss(h_cis_all):
+    """Semantic coherence loss (Eq. 13): cosine sim to stable-region centroid."""
     losses = []
     for i, vh in enumerate(hard_nodes_list):
         base = i * args.trigger_size
         v_sem = stable_regions[vh]
-        centroid = embeddings_ori[v_sem].mean(dim=0, keepdim=True)
+        centroid = embeddings[v_sem].mean(dim=0, keepdim=True)  # frozen
 
         for j in range(args.trigger_size):
-            h_cis_j = cis_feats[base + j].unsqueeze(0)
-            cos_sim = F.cosine_similarity(h_cis_j, centroid)
+            h_j = h_cis_all[base + j].unsqueeze(0)
+            cos_sim = F.cosine_similarity(h_j, centroid)
             losses.append(1.0 - cos_sim)
+
     if losses:
         return torch.stack(losses).mean()
     return torch.tensor(0.0, device=device)
 
 
-# --- Bi-level alternating optimization (Eq. 17-19) ---
-hard_nodes_list = hard_nodes.tolist()
+# ---- Bi-level alternating optimization (Eq. 17-19) ----
+cis_indices = torch.arange(num_orig, num_orig + total_cis_nodes, device=device)
 
 for outer_epoch in range(1, args.outer_epochs + 1):
-    # === Inner loop: fix CIS, optimize prompt (Eq. 18) ===
+
+    # === Inner loop: fix CIS generator, optimize prompt (Eq. 18) ===
+    cis_gen.eval()
+    with torch.no_grad():
+        cis_feats_detached = generate_cis_features().detach()
+        inner_x = torch.cat([data.x, cis_feats_detached], dim=0)
+
     for inner_step in range(args.n_inner):
         prompt.train()
         prompt_optimizer.zero_grad()
 
-        # detach CIS features so gradients only flow to prompt
-        new_x = torch.cat([data.x, cis_features.detach()], dim=0)
-        new_edge_index = to_undirected(
-            torch.cat([data.edge_index, cis_edges], dim=1))
-        x_modulated = prompt(new_x, hard_mask_full, zeta=1.0)
-        h = surrogate_gnn(x_modulated, new_edge_index)
+        x_modulated = prompt(inner_x, hard_mask_full, zeta=1.0)
+        h = surrogate_gnn(x_modulated, perturbed_edge_index)
         logits, _ = surrogate_cls(h)
 
-        # L_prompt = CE on labeled nodes + beta * CE on hard nodes (Eq. 16)
+        # L_prompt (Eq. 16)
         loss_labeled = F.cross_entropy(logits[train_idx], data.y[train_idx])
-        loss_hard = F.cross_entropy(logits[hard_nodes], pseudo_labels[hard_nodes])
+        loss_hard = F.cross_entropy(logits[hard_nodes],
+                                    pseudo_labels[hard_nodes])
         loss_prompt = loss_labeled + args.beta * loss_hard
         loss_prompt.backward()
         prompt_optimizer.step()
 
-    # === Outer loop: fix prompt, optimize CIS (Eq. 19) ===
+    # === Outer loop: fix prompt, optimize CIS generator (Eq. 19) ===
+    cis_gen.train()
     cis_optimizer.zero_grad()
 
-    # compute CIS embeddings through frozen encoder (gradients flow to cis_features)
-    new_x = torch.cat([data.x, cis_features], dim=0)
-    new_edge_index = to_undirected(
-        torch.cat([data.edge_index, cis_edges], dim=1))
-    h_all_nodes = surrogate_gnn(new_x, new_edge_index)
-
-    cis_indices = torch.arange(num_orig, num_orig + total_cis_nodes, device=device)
+    cis_feats = generate_cis_features()
+    new_x = torch.cat([data.x, cis_feats], dim=0)
+    h_all_nodes = surrogate_gnn(new_x, perturbed_edge_index)
     h_cis = h_all_nodes[cis_indices]
-    h_ori = embeddings  # frozen original embeddings (no grad)
 
-    # distributional loss (Eq. 12)
-    l_dist = compute_w2_loss(h_cis, h_ori)
-
-    # semantic loss (Eq. 13) - CIS embeddings vs stable region centroids
-    l_sem = compute_semantic_loss(h_cis, hard_nodes_list, h_ori)
-
-    # total CIS loss (Eq. 14)
+    l_dist = compute_w2_loss(h_cis)
+    l_sem = compute_semantic_loss(h_cis)
     l_c = l_dist + args.gamma * l_sem
     l_c.backward()
     cis_optimizer.step()
@@ -479,20 +501,20 @@ for outer_epoch in range(1, args.outer_epochs + 1):
 # ============================================================
 logging.info("=== Stage 5: Build Perturbed Graph ===")
 
+cis_gen.eval()
 with torch.no_grad():
-    final_x = torch.cat([data.x, cis_features.detach()], dim=0)
-    final_edge_index = to_undirected(
-        torch.cat([data.edge_index, cis_edges], dim=1))
+    final_cis_feats = generate_cis_features().detach()
+    final_x = torch.cat([data.x, final_cis_feats], dim=0)
 
-# labels: CIS nodes inherit the pseudo label of their hard node
 cis_labels = []
-for i, vh in enumerate(hard_nodes_list):
+for vh in hard_nodes_list:
     label = pseudo_labels[vh].item()
     cis_labels.extend([label] * args.trigger_size)
 cis_labels = torch.tensor(cis_labels, device=device)
 final_y = torch.cat([data.y, cis_labels])
 
-perturbed_data = Data(x=final_x, edge_index=final_edge_index, y=final_y).to(device)
+perturbed_data = Data(x=final_x, edge_index=perturbed_edge_index,
+                      y=final_y).to(device)
 
 logging.info(f"Perturbed graph: {perturbed_data.num_nodes} nodes, "
              f"{perturbed_data.edge_index.size(1)} edges "
@@ -500,12 +522,10 @@ logging.info(f"Perturbed graph: {perturbed_data.num_nodes} nodes, "
 
 
 # ============================================================
-# 6. Train Legal Model (GNN + Classifier)  on Perturbed Graph
+# 6. Train Legal Model (GNN + Classifier)
 # ============================================================
 logging.info("=== Stage 6: Train Legal Model ===")
 
-# train / val / test split on the perturbed graph
-all_idx = torch.arange(perturbed_data.num_nodes, device=device)
 cis_node_indices = torch.arange(num_orig, perturbed_data.num_nodes, device=device)
 legal_train_idx = torch.cat([train_idx, cis_node_indices])
 
@@ -523,84 +543,86 @@ for epoch in range(1, args.epochs + 1):
 
     h = legal_gnn(perturbed_data.x, perturbed_data.edge_index)
     out, _ = legal_cls(h)
-    loss = F.cross_entropy(out[legal_train_idx], perturbed_data.y[legal_train_idx])
+    loss = F.cross_entropy(out[legal_train_idx],
+                           perturbed_data.y[legal_train_idx])
     loss.backward()
     opt_legal_gnn.step(); opt_legal_cls.step()
 
     if epoch % 50 == 0 or epoch == args.epochs:
         legal_gnn.eval(); legal_cls.eval()
         with torch.no_grad():
-            logits_eval, _ = legal_cls(legal_gnn(perturbed_data.x,
-                                                  perturbed_data.edge_index))
-            pred = logits_eval.argmax(dim=1)
-            acc_test = (pred[test_idx] == perturbed_data.y[test_idx]).float().mean().item()
+            logits_e, _ = legal_cls(legal_gnn(perturbed_data.x,
+                                              perturbed_data.edge_index))
+            pred = logits_e.argmax(dim=1)
+            acc = (pred[test_idx] == perturbed_data.y[test_idx]).float().mean().item()
         logging.info(f"[Legal] Epoch {epoch:03d} | Loss: {loss.item():.4f} | "
-                     f"Test Acc: {acc_test:.4f}")
+                     f"Test Acc: {acc:.4f}")
 
 
 # ============================================================
-# 7. Train Illegal Model (suspected model, no prompt)
+# 7. Train Illegal Model (suspected, no prompt knowledge)
 # ============================================================
-logging.info("=== Stage 7: Train Illegal Model (suspected) ===")
+logging.info("=== Stage 7: Train Illegal Model ===")
 
 illegal_gnn = build_gnn(feature_dim, args.hidden, args.num_layer, args.dropout)
 illegal_cls = NodeClassifier(hid_dim=args.hidden, num_classes=num_classes,
                              dropout=args.dropout, inner_dim=args.hidden).to(device)
-opt_illegal_gnn = torch.optim.Adam(illegal_gnn.parameters(), lr=args.train_lr,
-                                   weight_decay=args.weight_decay)
-opt_illegal_cls = torch.optim.Adam(illegal_cls.parameters(), lr=args.train_lr,
-                                   weight_decay=args.weight_decay)
+opt_ill_gnn = torch.optim.Adam(illegal_gnn.parameters(), lr=args.train_lr,
+                               weight_decay=args.weight_decay)
+opt_ill_cls = torch.optim.Adam(illegal_cls.parameters(), lr=args.train_lr,
+                               weight_decay=args.weight_decay)
 
 for epoch in range(1, args.epochs + 1):
     illegal_gnn.train(); illegal_cls.train()
-    opt_illegal_gnn.zero_grad(); opt_illegal_cls.zero_grad()
+    opt_ill_gnn.zero_grad(); opt_ill_cls.zero_grad()
 
-    out, _ = illegal_cls(illegal_gnn(perturbed_data.x, perturbed_data.edge_index))
-    loss = F.cross_entropy(out[legal_train_idx], perturbed_data.y[legal_train_idx])
+    out, _ = illegal_cls(illegal_gnn(perturbed_data.x,
+                                     perturbed_data.edge_index))
+    loss = F.cross_entropy(out[legal_train_idx],
+                           perturbed_data.y[legal_train_idx])
     loss.backward()
-    opt_illegal_gnn.step(); opt_illegal_cls.step()
+    opt_ill_gnn.step(); opt_ill_cls.step()
 
     if epoch % 50 == 0 or epoch == args.epochs:
         illegal_gnn.eval(); illegal_cls.eval()
         with torch.no_grad():
-            logits_eval, _ = illegal_cls(illegal_gnn(perturbed_data.x,
-                                                      perturbed_data.edge_index))
-            pred = logits_eval.argmax(dim=1)
-            acc_test = (pred[test_idx] == perturbed_data.y[test_idx]).float().mean().item()
+            logits_e, _ = illegal_cls(illegal_gnn(perturbed_data.x,
+                                                  perturbed_data.edge_index))
+            pred = logits_e.argmax(dim=1)
+            acc = (pred[test_idx] == perturbed_data.y[test_idx]).float().mean().item()
         logging.info(f"[Illegal] Epoch {epoch:03d} | Loss: {loss.item():.4f} | "
-                     f"Test Acc: {acc_test:.4f}")
+                     f"Test Acc: {acc:.4f}")
 
 
 # ============================================================
-# 8. Train Clean Model (for false positive evaluation)
+# 8. Train Clean Model (FPR baseline, trained on CLEAN data)
 # ============================================================
 logging.info("=== Stage 8: Train Clean Model (FPR baseline) ===")
 
 clean_gnn = build_gnn(feature_dim, args.hidden, args.num_layer, args.dropout)
 clean_cls = NodeClassifier(hid_dim=args.hidden, num_classes=num_classes,
                            dropout=args.dropout, inner_dim=args.hidden).to(device)
-opt_clean_gnn = torch.optim.Adam(clean_gnn.parameters(), lr=args.train_lr,
-                                 weight_decay=args.weight_decay)
-opt_clean_cls = torch.optim.Adam(clean_cls.parameters(), lr=args.train_lr,
-                                 weight_decay=args.weight_decay)
+opt_c_gnn = torch.optim.Adam(clean_gnn.parameters(), lr=args.train_lr,
+                             weight_decay=args.weight_decay)
+opt_c_cls = torch.optim.Adam(clean_cls.parameters(), lr=args.train_lr,
+                             weight_decay=args.weight_decay)
 
 for epoch in range(1, args.epochs + 1):
     clean_gnn.train(); clean_cls.train()
-    opt_clean_gnn.zero_grad(); opt_clean_cls.zero_grad()
+    opt_c_gnn.zero_grad(); opt_c_cls.zero_grad()
 
-    h = clean_gnn(data.x, data.edge_index)
-    out, _ = clean_cls(h)
+    out, _ = clean_cls(clean_gnn(data.x, data.edge_index))
     loss = F.cross_entropy(out[train_idx], data.y[train_idx])
     loss.backward()
-    opt_clean_gnn.step(); opt_clean_cls.step()
+    opt_c_gnn.step(); opt_c_cls.step()
 
     if epoch == args.epochs:
         clean_gnn.eval(); clean_cls.eval()
         with torch.no_grad():
-            logits_eval, _ = clean_cls(clean_gnn(data.x, data.edge_index))
-            pred = logits_eval.argmax(dim=1)
-            acc_test = (pred[test_idx] == data.y[test_idx]).float().mean().item()
-        logging.info(f"[Clean] Test Acc: {acc_test:.4f}")
+            logits_e, _ = clean_cls(clean_gnn(data.x, data.edge_index))
+            pred = logits_e.argmax(dim=1)
+            acc = (pred[test_idx] == data.y[test_idx]).float().mean().item()
+        logging.info(f"[Clean] Test Acc: {acc:.4f}")
 
 
 # ============================================================
@@ -610,7 +632,7 @@ logging.info("=== Stage 9: Ownership Verification ===")
 
 
 def compute_mmd(X, Y, gamma=1.0):
-    """Compute empirical MMD^2 with Gaussian kernel (Eq. 22)."""
+    """Empirical MMD^2 with Gaussian kernel (Eq. 22)."""
     XX = pairwise_kernels(X, X, metric='rbf', gamma=gamma)
     YY = pairwise_kernels(Y, Y, metric='rbf', gamma=gamma)
     XY = pairwise_kernels(X, Y, metric='rbf', gamma=gamma)
@@ -625,19 +647,28 @@ def permutation_test(x, y, n_perm=1000, gamma=1.0):
     count = 0
     for _ in range(n_perm):
         perm = np.random.permutation(len(combined))
-        x_perm = combined[perm[:n]]
-        y_perm = combined[perm[n:]]
-        if compute_mmd(x_perm, y_perm, gamma) >= observed:
+        if compute_mmd(combined[perm[:n]], combined[perm[n:]], gamma) >= observed:
             count += 1
     return observed, count / n_perm
 
 
+def classify_verdict(a_label, p_value, alpha):
+    """Verification criteria (Section 5.4)."""
+    if a_label >= 0.5 and p_value > alpha:
+        return "CONFIRMED INFRINGEMENT"
+    elif a_label < 0.5 and p_value <= alpha:
+        return "NO INFRINGEMENT"
+    elif a_label >= 0.5 and p_value <= alpha:
+        return "FALSE POSITIVE"
+    return "FALSE NEGATIVE"
+
+
 def verify_ownership(legal_gnn, legal_cls, suspect_gnn, suspect_cls,
-                     perturbed_data, prompt_module, hard_nodes, hard_mask_full,
+                     query_data, prompt_module, hard_nodes, hard_mask_q,
                      zeta, alpha, sigma, n_perm, label="Suspect"):
     """Ownership verification via label agreement + MMD test.
 
-    Returns (A_label, mmd_val, p_value, verdict).
+    Both models receive the SAME query graph with prompt-modulated features.
     """
     legal_gnn.eval(); legal_cls.eval()
     suspect_gnn.eval(); suspect_cls.eval()
@@ -647,38 +678,27 @@ def verify_ownership(legal_gnn, legal_cls, suspect_gnn, suspect_cls,
 
     with torch.no_grad():
         # amplified prompt modulation (Eq. 20)
-        x_mod = prompt_module(perturbed_data.x, hard_mask_full, zeta=zeta)
+        x_mod = prompt_module(query_data.x, hard_mask_q, zeta=zeta)
 
-        # legal model
-        h_legal = legal_gnn(x_mod, perturbed_data.edge_index)
-        logits_legal, _ = legal_cls(h_legal)
+        # legal model on perturbed graph
+        logits_legal, _ = legal_cls(legal_gnn(x_mod, query_data.edge_index))
         probs_legal = F.softmax(logits_legal[hard_nodes], dim=1)
         preds_legal = logits_legal[hard_nodes].argmax(dim=1)
 
-        # suspected model
-        h_suspect = suspect_gnn(x_mod, perturbed_data.edge_index)
-        logits_suspect, _ = suspect_cls(h_suspect)
+        # suspected model on the SAME query graph
+        logits_suspect, _ = suspect_cls(suspect_gnn(x_mod, query_data.edge_index))
         probs_suspect = F.softmax(logits_suspect[hard_nodes], dim=1)
         preds_suspect = logits_suspect[hard_nodes].argmax(dim=1)
 
     # label agreement (Eq. 21)
     a_label = (preds_legal == preds_suspect).float().mean().item()
 
-    # MMD test (Eq. 22-23)
-    legal_np = probs_legal.cpu().numpy()
-    suspect_np = probs_suspect.cpu().numpy()
-    mmd_val, p_value = permutation_test(legal_np, suspect_np,
-                                        n_perm=n_perm, gamma=gamma)
+    # MMD + permutation test (Eq. 22-23)
+    mmd_val, p_value = permutation_test(
+        probs_legal.cpu().numpy(), probs_suspect.cpu().numpy(),
+        n_perm=n_perm, gamma=gamma)
 
-    # verification criteria (Section 5.4)
-    if a_label >= 0.5 and p_value > alpha:
-        verdict = "CONFIRMED INFRINGEMENT"
-    elif a_label < 0.5 and p_value <= alpha:
-        verdict = "NO INFRINGEMENT"
-    elif a_label >= 0.5 and p_value <= alpha:
-        verdict = "FALSE POSITIVE"
-    else:
-        verdict = "FALSE NEGATIVE"
+    verdict = classify_verdict(a_label, p_value, alpha)
 
     logging.info(f"[{label}] Label Agreement: {a_label:.4f} | "
                  f"MMD: {mmd_val:.6f} | p-value: {p_value:.4f} | "
@@ -686,7 +706,7 @@ def verify_ownership(legal_gnn, legal_cls, suspect_gnn, suspect_cls,
     return a_label, mmd_val, p_value, verdict
 
 
-# --- Verify illegal model (should be CONFIRMED INFRINGEMENT) ---
+# ---- Verify: Legal vs Illegal (should be CONFIRMED INFRINGEMENT) ----
 print("\n" + "=" * 60)
 print("Verification: Legal vs Illegal (trained on perturbed data)")
 print("=" * 60)
@@ -695,47 +715,13 @@ verify_ownership(legal_gnn, legal_cls, illegal_gnn, illegal_cls,
                  args.zeta, args.alpha, args.sigma, args.n_perm,
                  label="Illegal")
 
-# --- Verify clean model (should be NO INFRINGEMENT) ---
-# For clean model verification, we need to run it on the perturbed graph structure
-# but the clean model was trained on clean data
+# ---- Verify: Legal vs Clean (should be NO INFRINGEMENT) ----
 print("\n" + "=" * 60)
 print("Verification: Legal vs Clean (trained on clean data)")
 print("=" * 60)
-
-# build a version of the clean model that can handle the perturbed graph size
-# The clean model only knows original graph nodes; we pad its output for CIS nodes
-clean_gnn.eval(); clean_cls.eval()
-
-with torch.no_grad():
-    x_mod_clean = prompt(perturbed_data.x, hard_mask_full, zeta=args.zeta)
-    h_clean = clean_gnn(x_mod_clean[:num_orig], data.edge_index)
-    logits_clean_full, _ = clean_cls(h_clean)
-    probs_clean = F.softmax(logits_clean_full[hard_nodes], dim=1)
-    preds_clean = logits_clean_full[hard_nodes].argmax(dim=1)
-
-    x_mod_legal = prompt(perturbed_data.x, hard_mask_full, zeta=args.zeta)
-    h_legal = legal_gnn(x_mod_legal, perturbed_data.edge_index)
-    logits_legal_full, _ = legal_cls(h_legal)
-    probs_legal = F.softmax(logits_legal_full[hard_nodes], dim=1)
-    preds_legal = logits_legal_full[hard_nodes].argmax(dim=1)
-
-a_label_clean = (preds_legal == preds_clean).float().mean().item()
-gamma_mmd = 1.0 / (2 * args.sigma ** 2)
-mmd_clean, p_clean = permutation_test(
-    probs_legal.cpu().numpy(), probs_clean.cpu().numpy(),
-    n_perm=args.n_perm, gamma=gamma_mmd)
-
-if a_label_clean >= 0.5 and p_clean > args.alpha:
-    verdict_clean = "CONFIRMED INFRINGEMENT"
-elif a_label_clean < 0.5 and p_clean <= args.alpha:
-    verdict_clean = "NO INFRINGEMENT"
-elif a_label_clean >= 0.5 and p_clean <= args.alpha:
-    verdict_clean = "FALSE POSITIVE"
-else:
-    verdict_clean = "FALSE NEGATIVE"
-
-logging.info(f"[Clean] Label Agreement: {a_label_clean:.4f} | "
-             f"MMD: {mmd_clean:.6f} | p-value: {p_clean:.4f} | "
-             f"Verdict: {verdict_clean}")
+verify_ownership(legal_gnn, legal_cls, clean_gnn, clean_cls,
+                 perturbed_data, prompt, hard_nodes, hard_mask_full,
+                 args.zeta, args.alpha, args.sigma, args.n_perm,
+                 label="Clean")
 
 logging.info("=== Experiment Complete ===")
