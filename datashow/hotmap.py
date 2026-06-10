@@ -97,7 +97,7 @@ for ax_idx, (ax, (data, subtitle)) in enumerate(zip(axes, panels)):
 # ========== 统一 colorbar ==========
 cbar_ax = fig.add_axes([0.90, 0.18, 0.02, 0.70])
 cbar = fig.colorbar(im, cax=cbar_ax)
-cbar.set_label("VSR (%)", fontsize=12, labelpad=8)
+cbar.set_label("Accuracy (%)", fontsize=12, labelpad=8)
 cbar.ax.tick_params(labelsize=10)
 cbar.outline.set_linewidth(0.8)
 cbar.outline.set_color('#888888')
